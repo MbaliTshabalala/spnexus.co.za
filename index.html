@@ -6359,7 +6359,8 @@ async function fullOrgCloudSync() {
    setCloudHealth({ status: ok ? 'synced' : 'failed', pending: !ok, lastError: reason });
    try {
     var badge = document.getElementById('spnSyncBadge');
-    if (badge) badge.textContent = ok ? 'Synced' : ('Sync incomplete: ' + failed.join(', '));
+    var stamp = new Date().toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit' });
+    if (badge) badge.textContent = ok ? ('Synced ' + stamp) : ('Sync incomplete: ' + failed.join(', '));
    } catch (eB) {}
    return { ok: ok, results: results, failed: failed };
   }
