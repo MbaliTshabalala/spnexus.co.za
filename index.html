@@ -5748,6 +5748,10 @@ button, a.btn, .btn, [class*="btn"], .portal-card button, .portal-card a, input[
      return { ok: true, skipped: true, reason: 'skipped empty ' + key + ' payload' };
     }
     var existing = await sb.from('spn_workspace_data').select('updated_at,payload,version').eq('key', key).maybeSingle();
+    if (existing.error) {
+     setCloudHealth({ status: 'failed', lastError: 'Could not read current version for ' + key, pending: true });
+     return { ok: false, reason: 'read failed — write aborted' };
+    }
     var remoteVersion = existing && existing.data && existing.data.version ? Number(existing.data.version) : 0;
     var rpc = await sb.rpc('spn_save_workspace', {
      p_key: key,
@@ -6348,13 +6352,16 @@ async function fullOrgCloudSync() {
    try { results.contracts = await pullContractsFromCloud(); } catch (e) { results.contracts = { ok: false }; }
    try { results.work = await pullWorkFromCloud(); } catch (e) { results.work = { ok: false }; }
    try { results.employees = await pullEmployeesFromCloud(); } catch (e) { results.employees = { ok: false }; }
-   var ok = Object.keys(results).some(function(k){ return results[k] && results[k].ok; });
-   setCloudHealth({ status: ok ? 'synced' : 'failed', pending: !ok, lastError: ok ? '' : 'Cloud pull failed' });
+   var keys = Object.keys(results);
+   var failed = keys.filter(function(k){ return !(results[k] && results[k].ok); });
+   var ok = failed.length === 0 && keys.length > 0;
+   var reason = ok ? '' : ('Failed: ' + failed.join(', '));
+   setCloudHealth({ status: ok ? 'synced' : 'failed', pending: !ok, lastError: reason });
    try {
     var badge = document.getElementById('spnSyncBadge');
-    if (badge) badge.textContent = ok ? 'Synced' : 'Sync failed';
+    if (badge) badge.textContent = ok ? 'Synced' : ('Sync incomplete: ' + failed.join(', '));
    } catch (eB) {}
-   return { ok: ok, results: results };
+   return { ok: ok, results: results, failed: failed };
   }
   window.syncAllFromCloud = syncAllFromCloud;
 
@@ -15799,9 +15806,12 @@ window.doLogin = doLogin;
 
     var leaseCard = '';
     try {
-     var count = (c && c.businessClients) ? c.businessClients.length : 0;
+     var people = [].concat((c && c.businessClients) || [], (c && c.drivers) || []);
+     var seen = {};
+     people = people.filter(function(x){ if (!x || !x.id || seen[x.id]) return false; seen[x.id] = 1; return true; });
+     var count = people.length;
      if (count) {
-      leaseCard = '<div class="portal-card" style="margin-bottom:0.75rem;border-left:4px solid var(--forest)"><p style="margin:0 0 0.25rem;font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Your clients</p><h3 style="margin:0 0 0.35rem">Total clients: ' + count + '</h3><p style="margin:0;font-size:0.9rem;line-height:1.5">Bongani Maluleke is your driver. Weekly fee R2,500 under the driver agreement.</p><p style="margin:0.5rem 0 0"><button type="button" class="btn btn-forest btn-sm" onclick="portalNav(\'total-clients\')">Open Total clients</button></p></div>';
+      leaseCard = '<div class="portal-card" style="margin-bottom:0.75rem;border-left:4px solid var(--forest)"><p style="margin:0 0 0.25rem;font-size:0.72rem;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted)">Your clients</p><h3 style="margin:0 0 0.35rem">Total clients: ' + count + '</h3><p style="margin:0;font-size:0.9rem;line-height:1.5">' + people.map(function(x){ return x.name || 'Client'; }).join(', ') + '. Weekly fee R2,500 each under their agreements.</p><p style="margin:0.5rem 0 0"><button type="button" class="btn btn-forest btn-sm" onclick="portalNav(\'total-clients\')">Open Total clients</button></p></div>';
      }
     } catch (eLease) {}
     var workCard = '';
@@ -28763,6 +28773,38 @@ function renderCompliance() {
     bc.paymentTo = 'Safari VTC FNB 63232975079';
     bc.note = 'Safari VTC is a transport business. Bongani Maluleke is the driver. Weekly fee R2,500 under the driver agreement with Safari VTC.';
     bc.updatedAt = new Date().toISOString();
+    bc.status = 'Active';
+    var jason = cl.businessClients.find(function (x) { return x.id === 'safari-client-jason'; });
+    if (!jason) { jason = { id: 'safari-client-jason' }; cl.businessClients.push(jason); }
+    jason.name = 'Jason Ntumba Tshibangu';
+    jason.type = 'Driver';
+    jason.idNumber = 'P7400000710719';
+    jason.licence = 'AA00198216KN';
+    jason.address = '57 Hugy Street';
+    jason.phones = '0688714182';
+    jason.vehicle = 'Hyundai i20';
+    jason.agreement = 'Vehicle Lease and Operational Agreement';
+    jason.signedDate = '2026-11-10';
+    jason.weeklyFee = 2500;
+    jason.deposit = 2500;
+    jason.paymentDay = 'Every Monday before 12:00';
+    jason.status = 'Active';
+    jason.note = 'Independent contractor / lessee. Weekly rental R2,500. Deposit R2,500. Agreement received 10 November 2026.';
+    jason.updatedAt = new Date().toISOString();
+    if (!store.docs.some(function (d) { return d && d.id === 'doc-safari-jason-lease-2026'; })) {
+     store.docs.unshift({
+      id: 'doc-safari-jason-lease-2026',
+      title: 'Vehicle Lease and Operational Agreement — Jason Ntumba Tshibangu',
+      name: 'Vehicle Lease and Operational Agreement — Jason Ntumba Tshibangu',
+      clientId: cl.id,
+      category: 'Contracts',
+      status: 'Received',
+      date: '2026-11-10',
+      hasFile: false,
+      note: 'Metadata from the scanned lease. Physical PDF is not confirmed in Storage.',
+      uploadedBy: 'CEO provision'
+     });
+    }
     saveStore(store);
    } catch (e) {}
   }
